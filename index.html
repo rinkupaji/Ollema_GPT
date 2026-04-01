@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ollama Chat</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        html, body { height: 100%; }
+
+        /* Dark theme (default) */
+        :root {
+            --bg-primary: #212121;
+            --bg-sidebar: #171717;
+            --bg-input: #303030;
+            --bg-controls: #2a2a2a;
+            --border: #2a2a2a;
+            --border-input: #3a3a3a;
+            --border-controls: #333;
+            --text-primary: #e3e3e3;
+            --text-secondary: #999;
+            --text-muted: #888;
+            --text-faint: #666;
+            --text-dim: #555;
+            --bubble-user: #303030;
+            --bubble-assistant: transparent;
+            --avatar-assistant-bg: #2a2a2a;
+            --send-bg: #e3e3e3;
+            --send-color: #212121;
+            --send-hover: #fff;
+            --send-disabled-bg: #444;
+            --send-disabled-color: #666;
+            --scrollbar: #333;
+            --user-avatar: #5b5fc7;
+            --thinking-dot: #555;
+        }
+
+        /* Light theme */
+        body.light {
+            --bg-primary: #f7f7f8;
+            --bg-sidebar: #ebebeb;
+            --bg-input: #ffffff;
+            --bg-controls: #e4e4e4;
+            --border: #d9d9d9;
+            --border-input: #ccc;
+            --border-controls: #ccc;
+            --text-primary: #1a1a1a;
+            --text-secondary: #555;
+            --text-muted: #666;
+            --text-faint: #999;
+            --text-dim: #aaa;
+            --bubble-user: #e9e9eb;
+            --bubble-assistant: transparent;
+            --avatar-assistant-bg: #e4e4e4;
+            --send-bg: #1a1a1a;
+            --send-color: #fff;
+            --send-hover: #333;
+            --send-disabled-bg: #ccc;
+            --send-disabled-color: #999;
+            --scrollbar: #ccc;
+            --user-avatar: #5b5fc7;
+            --thinking-dot: #bbb;
+        }
+
+        body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: var(--bg-primary); color: var(--text-primary); display: flex; transition: background 0.3s, color 0.3s; }
+
+        /* Sidebar */
+        .sidebar {
+            width: 260px; min-width: 260px; background: var(--bg-sidebar); display: flex; flex-direction: column;
+            border-right: 1px solid var(--border); padding: 16px; gap: 16px; overflow-y: auto; transition: background 0.3s;
+        }
+        .sidebar h2 { font-size: 14px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+        .sidebar label { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; display: block; }
+        .sidebar input, .sidebar select {
+            width: 100%; padding: 8px 10px; border: 1px solid var(--border-controls); border-radius: 8px;
+            background: var(--bg-controls); color: var(--text-primary); font-size: 13px; outline: none;
+        }
+        .sidebar input:focus, .sidebar select:focus { border-color: var(--text-faint); }
+        .sidebar .field { margin-bottom: 12px; }
+        .sidebar button {
+            width: 100%; padding: 8px 12px; border: none; border-radius: 8px; font-size: 13px;
+            font-weight: 600; cursor: pointer; background: var(--bg-controls); color: var(--text-primary); border: 1px solid var(--border-controls);
+            transition: background 0.2s;
+        }
+        .sidebar button:hover { background: var(--border-controls); }
+        .sidebar .status { font-size: 11px; color: var(--text-faint); margin-top: 4px; min-height: 16px; }
+        .new-chat-btn {
+            padding: 10px !important; background: var(--bg-controls) !important; border: 1px dashed var(--text-dim) !important;
+            color: var(--text-muted) !important; display: flex; align-items: center; gap: 8px; justify-content: center;
+        }
+        .new-chat-btn:hover { background: var(--border-controls) !important; color: var(--text-primary) !important; }
+        .sidebar-brand { display: flex; align-items: center; gap: 10px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+        .sidebar-brand span { font-size: 20px; font-weight: 700; color: var(--text-primary); }
+        .sidebar-brand .icon { font-size: 28px; }
+
+        /* Main chat area */
+        .chat-area { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+        /* Top bar */
+        .topbar {
+            padding: 12px 24px; border-bottom: 1px solid var(--border); display: flex;
+            align-items: center; justify-content: space-between; background: var(--bg-primary); transition: background 0.3s;
+        }
+        .topbar .model-name { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+        .topbar .topbar-right { display: flex; align-items: center; gap: 10px; }
+        .topbar .badge { font-size: 11px; color: var(--text-muted); background: var(--bg-controls); padding: 3px 10px; border-radius: 12px; }
+        .theme-toggle {
+            width: 36px; height: 36px; border: 1px solid var(--border-controls); border-radius: 50%;
+            background: var(--bg-controls); color: var(--text-primary); cursor: pointer;
+            display: flex; align-items: center; justify-content: center; font-size: 18px;
+            transition: background 0.2s;
+        }
+        .theme-toggle:hover { background: var(--border-controls); }
+
+        /* Messages */
+        .messages {
+            flex: 1; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 8px;
+        }
+        .messages::-webkit-scrollbar { width: 6px; }
+        .messages::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 3px; }
+        .messages::-webkit-scrollbar-track { background: transparent; }
+
+        .msg { max-width: 780px; width: 100%; margin: 0 auto; display: flex; gap: 14px; padding: 16px 0; }
+        .msg.user { justify-content: flex-end; }
+        .msg.assistant { justify-content: flex-start; }
+
+        .msg .avatar {
+            width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center;
+            justify-content: center; font-size: 15px; flex-shrink: 0; margin-top: 2px;
+        }
+        .msg.user .avatar { background: var(--user-avatar); order: 2; }
+        .msg.assistant .avatar { background: var(--avatar-assistant-bg); border: 1px solid var(--border-controls); }
+
+        .msg .bubble {
+            padding: 12px 18px; border-radius: 18px; font-size: 14px; line-height: 1.65;
+            white-space: pre-wrap; word-wrap: break-word; max-width: 85%;
+        }
+        .msg.user .bubble {
+            background: var(--bubble-user); color: var(--text-primary); border-bottom-right-radius: 4px;
+        }
+        .msg.assistant .bubble {
+            background: var(--bubble-assistant); color: var(--text-primary); border-bottom-left-radius: 4px;
+        }
+
+        .thinking {
+            display: inline-flex; gap: 4px; padding: 8px 16px;
+        }
+        .thinking span {
+            width: 8px; height: 8px; background: var(--thinking-dot); border-radius: 50%;
+            animation: bounce 1.4s infinite ease-in-out both;
+        }
+        .thinking span:nth-child(1) { animation-delay: -0.32s; }
+        .thinking span:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+
+        /* Welcome screen */
+        .welcome {
+            flex: 1; display: flex; flex-direction: column; align-items: center;
+            justify-content: center; gap: 16px; color: var(--text-dim);
+        }
+        .welcome .logo { font-size: 56px; }
+        .welcome h2 { font-size: 22px; font-weight: 600; color: var(--text-muted); }
+        .welcome p { font-size: 14px; color: var(--text-dim); }
+
+        /* Input bar */
+        .input-bar {
+            padding: 16px 24px 24px; background: var(--bg-primary); transition: background 0.3s;
+        }
+        .input-wrapper {
+            max-width: 780px; margin: 0 auto; display: flex; align-items: flex-end;
+            background: var(--bg-input); border-radius: 24px; border: 1px solid var(--border-input);
+            padding: 8px 8px 8px 20px; transition: border-color 0.2s, background 0.3s;
+        }
+        .input-wrapper:focus-within { border-color: var(--text-dim); }
+        .input-wrapper textarea {
+            flex: 1; border: none; background: transparent; color: var(--text-primary); font-size: 14px;
+            font-family: inherit; resize: none; outline: none; max-height: 160px;
+            min-height: 24px; line-height: 1.5; padding: 6px 0;
+        }
+        .input-wrapper textarea::placeholder { color: var(--text-faint); }
+        .input-actions { display: flex; gap: 4px; align-items: flex-end; padding-bottom: 2px; }
+        .input-actions button {
+            width: 36px; height: 36px; border: none; border-radius: 50%; cursor: pointer;
+            display: flex; align-items: center; justify-content: center; font-size: 16px;
+            transition: background 0.2s;
+        }
+        .send-btn { background: var(--send-bg); color: var(--send-color); }
+        .send-btn:hover { background: var(--send-hover); }
+        .send-btn:disabled { background: var(--send-disabled-bg); color: var(--send-disabled-color); cursor: not-allowed; }
+        .input-hint { text-align: center; font-size: 11px; color: var(--text-dim); margin-top: 8px; max-width: 780px; margin-left: auto; margin-right: auto; }
+
+        /* Mobile */
+        @media (max-width: 768px) {
+            .sidebar { display: none; }
+            .msg .bubble { max-width: 95%; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            <span class="icon">🦙</span>
+            <span>Ollama</span>
+        </div>
+
+        <button class="new-chat-btn" onclick="clearChat()">+ New Chat</button>
+
+        <div>
+            <h2>Connection</h2>
+            <div class="field">
+                <label for="baseUrl">Base URL</label>
+                <input type="text" id="baseUrl" placeholder="http://localhost:11434" value="http://localhost:11434">
+            </div>
+        </div>
+
+        <div>
+            <h2>Model</h2>
+            <div class="field">
+                <select id="model"><option value="">-- Load models first --</option></select>
+            </div>
+            <button onclick="fetchModels()">Load Models</button>
+            <div class="status" id="status"></div>
+        </div>
+    </aside>
+
+    <!-- Main Chat -->
+    <main class="chat-area">
+        <div class="topbar">
+            <span class="model-name" id="topbarModel">Ollama Chat</span>
+            <div class="topbar-right">
+                <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle light/dark mode">🌙</button>
+                <span class="badge" id="topbarStatus">Disconnected</span>
+            </div>
+        </div>
+
+        <div class="messages" id="messages">
+            <div class="welcome" id="welcome">
+                <div class="logo">🦙</div>
+                <h2>How can I help you today?</h2>
+                <p>Connect to your Ollama server and start chatting.</p>
+            </div>
+        </div>
+
+        <div class="input-bar">
+            <div class="input-wrapper">
+                <textarea id="prompt" rows="1" placeholder="Message Ollama..." oninput="autoResize(this)"></textarea>
+                <div class="input-actions">
+                    <button class="send-btn" id="sendBtn" onclick="sendPrompt()" title="Send">&#9654;</button>
+                </div>
+            </div>
+            <div class="input-hint">Press Ctrl+Enter to send</div>
+        </div>
+    </main>
+
+    <script>
+        let abortController = null;
+
+        function toggleTheme() {
+            document.body.classList.toggle('light');
+            const isLight = document.body.classList.contains('light');
+            document.getElementById('themeToggle').textContent = isLight ? '☀️' : '🌙';
+            localStorage.setItem('ollama-theme', isLight ? 'light' : 'dark');
+        }
+
+        // Restore saved theme
+        (function() {
+            const saved = localStorage.getItem('ollama-theme');
+            if (saved === 'light') {
+                document.body.classList.add('light');
+                document.getElementById('themeToggle').textContent = '☀️';
+            }
+        })();
+
+        function autoResize(el) {
+            el.style.height = 'auto';
+            el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+        }
+
+        function clearChat() {
+            document.getElementById('messages').innerHTML =
+                '<div class="welcome" id="welcome"><div class="logo">🦙</div><h2>How can I help you today?</h2><p>Connect to your Ollama server and start chatting.</p></div>';
+        }
+
+        function addMessage(role, text) {
+            const welcome = document.getElementById('welcome');
+            if (welcome) welcome.remove();
+
+            const container = document.getElementById('messages');
+            const msg = document.createElement('div');
+            msg.className = `msg ${role}`;
+
+            const avatar = document.createElement('div');
+            avatar.className = 'avatar';
+            avatar.textContent = role === 'user' ? '👤' : '🦙';
+
+            const bubble = document.createElement('div');
+            bubble.className = 'bubble';
+            bubble.textContent = text;
+
+            msg.appendChild(avatar);
+            msg.appendChild(bubble);
+            container.appendChild(msg);
+            container.scrollTop = container.scrollHeight;
+            return bubble;
+        }
+
+        function addThinking() {
+            const welcome = document.getElementById('welcome');
+            if (welcome) welcome.remove();
+
+            const container = document.getElementById('messages');
+            const msg = document.createElement('div');
+            msg.className = 'msg assistant';
+            msg.id = 'thinking-msg';
+
+            const avatar = document.createElement('div');
+            avatar.className = 'avatar';
+            avatar.textContent = '🦙';
+
+            const dots = document.createElement('div');
+            dots.className = 'thinking';
+            dots.innerHTML = '<span></span><span></span><span></span>';
+
+            msg.appendChild(avatar);
+            msg.appendChild(dots);
+            container.appendChild(msg);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function removeThinking() {
+            const el = document.getElementById('thinking-msg');
+            if (el) el.remove();
+        }
+
+        async function fetchModels() {
+            const baseUrl = document.getElementById('baseUrl').value.replace(/\/+$/, '');
+            const modelSelect = document.getElementById('model');
+            const statusEl = document.getElementById('status');
+            const topbarStatus = document.getElementById('topbarStatus');
+            if (!baseUrl) { alert('Please enter a Base URL first.'); return; }
+            statusEl.textContent = 'Loading...';
+            try {
+                const response = await fetch(`${baseUrl}/v1/models`);
+                const data = await response.json();
+                modelSelect.innerHTML = '';
+                for (const m of data.data) {
+                    const opt = document.createElement('option');
+                    opt.value = m.id;
+                    opt.textContent = m.id;
+                    modelSelect.appendChild(opt);
+                }
+                statusEl.textContent = `${data.data.length} model(s) loaded`;
+                topbarStatus.textContent = 'Connected';
+                topbarStatus.style.color = '#4ade80';
+                updateTopbarModel();
+                modelSelect.addEventListener('change', updateTopbarModel);
+            } catch (err) {
+                statusEl.textContent = 'Error: ' + err.message;
+                topbarStatus.textContent = 'Connection failed';
+                topbarStatus.style.color = '#ef4444';
+            }
+        }
+
+        function updateTopbarModel() {
+            const model = document.getElementById('model').value;
+            document.getElementById('topbarModel').textContent = model || 'Ollama Chat';
+        }
+
+        async function sendPrompt() {
+            const baseUrl = document.getElementById('baseUrl').value.replace(/\/+$/, '');
+            const model = document.getElementById('model').value;
+            const promptEl = document.getElementById('prompt');
+            const prompt = promptEl.value.trim();
+            const sendBtn = document.getElementById('sendBtn');
+
+            if (!baseUrl || !prompt) return;
+            if (!model) { alert('Please load and select a model first.'); return; }
+
+            addMessage('user', prompt);
+            promptEl.value = '';
+            promptEl.style.height = 'auto';
+
+            addThinking();
+            sendBtn.disabled = true;
+            abortController = new AbortController();
+
+            try {
+                removeThinking();
+                const bubble = addMessage('assistant', '');
+                await handleStream(baseUrl, model, prompt, bubble);
+            } catch (err) {
+                removeThinking();
+                if (err.name !== 'AbortError') {
+                    addMessage('assistant', 'Error: ' + err.message);
+                }
+            } finally {
+                sendBtn.disabled = false;
+                abortController = null;
+            }
+        }
+
+        async function handleStream(baseUrl, model, prompt, bubbleEl) {
+            const response = await fetch(`${baseUrl}/v1/completions`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ model, prompt, stream: true }),
+                signal: abortController.signal
+            });
+
+            if (!response.ok) throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            const container = document.getElementById('messages');
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop();
+
+                for (const line of lines) {
+                    if (!line.trim() || !line.startsWith('data: ')) continue;
+                    const jsonStr = line.slice(6);
+                    if (jsonStr.trim() === '[DONE]') return;
+                    try {
+                        const parsed = JSON.parse(jsonStr);
+                        for (const choice of (parsed.choices || [])) {
+                            bubbleEl.textContent += choice.text || '';
+                        }
+                        container.scrollTop = container.scrollHeight;
+                    } catch { /* skip */ }
+                }
+            }
+        }
+
+        function stopGeneration() {
+            if (abortController) abortController.abort();
+        }
+
+        document.getElementById('prompt').addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key === 'Enter') sendPrompt();
+        });
+    </script>
+</body>
+</html>
