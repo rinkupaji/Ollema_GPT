@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ollama Chat</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         html, body { height: 100%; }
@@ -142,6 +143,65 @@
             background: var(--bubble-assistant); color: var(--text-primary); border-bottom-left-radius: 4px;
         }
 
+        /* Markdown rendering */
+        .msg.assistant .bubble h1, .msg.assistant .bubble h2, .msg.assistant .bubble h3 {
+            margin: 12px 0 6px; font-weight: 600;
+        }
+        .msg.assistant .bubble h1 { font-size: 1.3em; }
+        .msg.assistant .bubble h2 { font-size: 1.15em; }
+        .msg.assistant .bubble h3 { font-size: 1.05em; }
+        .msg.assistant .bubble p { margin: 6px 0; }
+        .msg.assistant .bubble ul, .msg.assistant .bubble ol {
+            margin: 6px 0; padding-left: 20px;
+        }
+        .msg.assistant .bubble li { margin: 3px 0; }
+        .msg.assistant .bubble code {
+            background: var(--bg-controls); padding: 2px 6px; border-radius: 4px;
+            font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace; font-size: 0.9em;
+        }
+        .msg.assistant .bubble pre {
+            background: var(--bg-controls); padding: 12px; border-radius: 8px;
+            overflow-x: auto; margin: 8px 0;
+        }
+        .msg.assistant .bubble pre code {
+            background: transparent; padding: 0; font-size: 0.85em; line-height: 1.5;
+        }
+        .msg.assistant .bubble blockquote {
+            border-left: 3px solid var(--text-dim); padding-left: 12px; margin: 8px 0;
+            color: var(--text-muted);
+        }
+        .msg.assistant .bubble table {
+            border-collapse: collapse; margin: 8px 0; width: 100%;
+        }
+        .msg.assistant .bubble th, .msg.assistant .bubble td {
+            border: 1px solid var(--border-controls); padding: 6px 10px; text-align: left;
+        }
+        .msg.assistant .bubble th {
+            background: var(--bg-controls); font-weight: 600;
+        }
+        .msg.assistant .bubble a {
+            color: #6ea8fe; text-decoration: none;
+        }
+        .msg.assistant .bubble a:hover { text-decoration: underline; }
+        .msg.assistant .bubble hr {
+            border: none; border-top: 1px solid var(--border-controls); margin: 10px 0;
+        }
+        .msg.assistant .bubble > *:first-child { margin-top: 0; }
+        .msg.assistant .bubble > *:last-child { margin-bottom: 0; }
+
+        /* Copy button */
+        .msg-wrapper { position: relative; }
+        .copy-btn {
+            position: absolute; top: 8px; right: 8px; width: 28px; height: 28px;
+            border: 1px solid var(--border-controls); border-radius: 6px;
+            background: var(--bg-controls); color: var(--text-muted); cursor: pointer;
+            display: flex; align-items: center; justify-content: center; font-size: 13px;
+            opacity: 0; transition: opacity 0.2s; z-index: 1;
+        }
+        .msg-wrapper:hover .copy-btn { opacity: 1; }
+        .copy-btn:hover { background: var(--border-controls); color: var(--text-primary); }
+        .copy-btn.copied { color: #4ade80; }
+
         .thinking {
             display: inline-flex; gap: 4px; padding: 8px 16px;
         }
@@ -190,6 +250,9 @@
         .send-btn { background: var(--send-bg); color: var(--send-color); }
         .send-btn:hover { background: var(--send-hover); }
         .send-btn:disabled { background: var(--send-disabled-bg); color: var(--send-disabled-color); cursor: not-allowed; }
+        .stop-btn { background: #ef4444; color: #fff; display: none; }
+        .stop-btn:hover { background: #dc2626; }
+        .stop-btn.visible { display: flex; }
         .input-hint { text-align: center; font-size: 11px; color: var(--text-dim); margin-top: 8px; max-width: 780px; margin-left: auto; margin-right: auto; }
 
         /* Mobile */
@@ -213,8 +276,11 @@
         <div>
             <h2>Connection</h2>
             <div class="field">
-                <label for="baseUrl">Base URL</label>
-                <input type="text" id="baseUrl" placeholder="http://localhost:11434" value="http://localhost:11434">
+                <label for="server">Server</label>
+                <select id="server">
+                    <option value="mullai">Mullai's Server</option>
+                    <option value="vimal">Vimal's Server</option>
+                </select>
             </div>
         </div>
 
@@ -250,6 +316,7 @@
             <div class="input-wrapper">
                 <textarea id="prompt" rows="1" placeholder="Message Ollama..." oninput="autoResize(this)"></textarea>
                 <div class="input-actions">
+                    <button class="stop-btn" id="stopBtn" onclick="stopGeneration()" title="Stop generating">&#9632;</button>
                     <button class="send-btn" id="sendBtn" onclick="sendPrompt()" title="Send">&#9654;</button>
                 </div>
             </div>
@@ -259,6 +326,16 @@
 
     <script>
         let abortController = null;
+
+        const SERVERS = {
+            mullai: { url: 'https://chauncey-convolvulaceous-alivia.ngrok-free.dev', key: 'Domain-Manager-123' },
+            vimal: { url: 'https://albert-serfish-tobias.ngrok-free.dev', key: 'sk-my-internal-key-changeme' }
+        };
+
+        function getServer() {
+            const id = document.getElementById('server').value;
+            return SERVERS[id];
+        }
 
         function toggleTheme() {
             document.body.classList.toggle('light');
@@ -302,8 +379,28 @@
             bubble.className = 'bubble';
             bubble.textContent = text;
 
-            msg.appendChild(avatar);
-            msg.appendChild(bubble);
+            if (role === 'assistant') {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'msg-wrapper';
+                const copyBtn = document.createElement('button');
+                copyBtn.className = 'copy-btn';
+                copyBtn.title = 'Copy';
+                copyBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+                copyBtn.onclick = () => {
+                    navigator.clipboard.writeText(bubble.innerText).then(() => {
+                        copyBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+                        copyBtn.classList.add('copied');
+                        setTimeout(() => { copyBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>'; copyBtn.classList.remove('copied'); }, 1500);
+                    });
+                };
+                wrapper.appendChild(copyBtn);
+                wrapper.appendChild(bubble);
+                msg.appendChild(avatar);
+                msg.appendChild(wrapper);
+            } else {
+                msg.appendChild(avatar);
+                msg.appendChild(bubble);
+            }
             container.appendChild(msg);
             container.scrollTop = container.scrollHeight;
             return bubble;
@@ -338,14 +435,15 @@
         }
 
         async function fetchModels() {
-            const baseUrl = document.getElementById('baseUrl').value.replace(/\/+$/, '');
+            const server = getServer();
+            const baseUrl = server.url;
             const modelSelect = document.getElementById('model');
             const statusEl = document.getElementById('status');
             const topbarStatus = document.getElementById('topbarStatus');
-            if (!baseUrl) { alert('Please enter a Base URL first.'); return; }
             statusEl.textContent = 'Loading...';
+            const headers = { 'ngrok-skip-browser-warning': 'true', 'Authorization': `Bearer ${server.key}` };
             try {
-                const response = await fetch(`${baseUrl}/v1/models`);
+                const response = await fetch(`${baseUrl}/v1/models`, { headers });
                 const data = await response.json();
                 modelSelect.innerHTML = '';
                 for (const m of data.data) {
@@ -372,7 +470,7 @@
         }
 
         async function sendPrompt() {
-            const baseUrl = document.getElementById('baseUrl').value.replace(/\/+$/, '');
+            const baseUrl = getServer().url;
             const model = document.getElementById('model').value;
             const promptEl = document.getElementById('prompt');
             const prompt = promptEl.value.trim();
@@ -387,6 +485,7 @@
 
             addThinking();
             sendBtn.disabled = true;
+            document.getElementById('stopBtn').classList.add('visible');
             abortController = new AbortController();
 
             try {
@@ -400,15 +499,22 @@
                 }
             } finally {
                 sendBtn.disabled = false;
+                document.getElementById('stopBtn').classList.remove('visible');
                 abortController = null;
             }
         }
 
+        function renderMarkdown(el, text) {
+            el.innerHTML = marked.parse(text);
+        }
+
         async function handleStream(baseUrl, model, prompt, bubbleEl) {
-            const response = await fetch(`${baseUrl}/v1/completions`, {
+            const server = getServer();
+            const headers = { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true', 'Authorization': `Bearer ${server.key}` };
+            const response = await fetch(`${baseUrl}/v1/chat/completions`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ model, prompt, stream: true }),
+                headers,
+                body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }], stream: true }),
                 signal: abortController.signal
             });
 
@@ -417,6 +523,7 @@
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let buffer = '';
+            let fullResponse = '';
             const container = document.getElementById('messages');
 
             while (true) {
@@ -430,11 +537,15 @@
                 for (const line of lines) {
                     if (!line.trim() || !line.startsWith('data: ')) continue;
                     const jsonStr = line.slice(6);
-                    if (jsonStr.trim() === '[DONE]') return;
+                    if (jsonStr.trim() === '[DONE]') {
+                        return;
+                    }
                     try {
                         const parsed = JSON.parse(jsonStr);
                         for (const choice of (parsed.choices || [])) {
-                            bubbleEl.textContent += choice.text || '';
+                            const token = choice.delta?.content || '';
+                            fullResponse += token;
+                            renderMarkdown(bubbleEl, fullResponse);
                         }
                         container.scrollTop = container.scrollHeight;
                     } catch { /* skip */ }
